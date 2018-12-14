@@ -12,7 +12,16 @@ if configRegistry.get('ldap/database/type') == "mdb" and configRegistry.is_true(
 	print "moduleload\tppolicy.so"
 if configRegistry.is_true('ldap/shadowbind', True):
 	print 'moduleload\tshadowbind.so'
+if configRegistry.is_true('ldap/monitor', False):
+	print 'moduleload\tback_monitor.so'
 print 'moduleload\tconstraint.so'
+
+if configRegistry.is_true('ldap/monitor',False):
+	print 'database monitor'
+	print 'access to dn.subtree="cn=Monitor"'
+	print '   by dn.base="cn=admin,%(ldap/base)s" read' % configRegistry
+	print '   by set="user & [cn=Domain Admins,cn=groups,%(ldap/base)s]/uniqueMember*" read' % configRegistry
+	print '   by * none stop'
 
 print '\n'
 print 'database\t%(ldap/database/type)s' % configRegistry
@@ -121,6 +130,7 @@ elif configRegistry['ldap/server/type'] == "slave":
 	print 'updatedn\t"cn=update,%s"'%configRegistry["ldap/base"]
 	if configRegistry.is_true("ldap/online/master", True):
 		print 'updateref\tldap://%s:%s'% (configRegistry["ldap/master"], configRegistry.get("ldap/master/port", 7389))
+
 @!@
 
 directory	"/var/lib/univention-ldap/ldap"

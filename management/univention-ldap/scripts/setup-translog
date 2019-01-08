@@ -1,0 +1,111 @@
+#!/bin/sh
+# vim: set ts=4 sw=4 et fileencoding=UTF-8:
+# Copyright 2019 Univention GmbH
+#
+# http://www.univention.de/
+#
+# All rights reserved.
+#
+# The source code of this program is made available
+# under the terms of the GNU Affero General Public License version 3
+# (GNU AGPL V3) as published by the Free Software Foundation.
+#
+# Binary versions of this program provided by Univention to you as
+# well as other copyrighted, protected or trademarked materials like
+# Logos, graphics, fonts, specific documentations and configurations,
+# cryptographic keys etc. are subject to a license agreement between
+# you and Univention and not subject to the GNU AGPL V3.
+#
+# In the case you use this program under the terms of the GNU AGPL V3,
+# the program is provided in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public
+# License with the Debian GNU/Linux or Univention distribution in file
+# /usr/share/common-licenses/AGPL-3; if not, see
+# <http://www.gnu.org/licenses/>.
+set -e -u
+
+main () {
+    local action="${1?-Missing action}"
+    shift
+    case "$action" in
+    db)
+        setup_db
+        ;;
+    schema)
+        setup_schema ${1:+"$@"}
+        ;;
+    all)
+        setup_db
+        setup_schema ${1:+"$@"}
+        ;;
+    help)
+        usage 0
+        ;;
+    *)
+        usage 1 >&2
+        ;;
+    esac
+}
+
+die () {
+    echo "${0##*/}: $*"
+    exit 1
+}
+
+usage () {
+    echo "Usage: ${0##*/} { db | schema | all | help } [options]"
+    exit "$1"
+}
+
+setup_db () {
+    local db
+
+    case "$(dpkg --print-architecture)" in
+    i386) db="id2entry.bdb" ;;
+    amd64|*) db="data.mdb" ;;
+    esac
+    [ -f "/var/lib/univention-ldap/translog/$db" ] ||
+        slapadd -f /etc/ldap/slapd.conf -b cn=translog -l /usr/share/univention-ldap/translog.ldif
+}
+
+setup_schema () {
+    local package_name package_version
+
+    # if the system is not joined, we have no running slapd to talk to
+    # this happens during install from .postinst, but we will get called again 01univention-ldap-server-init.inst
+    [ -f /var/univention-join/joined ] ||
+        return 0
+
+    # UDN only runs on these roles by default:
+    case "$(ucr get server/role)" in
+    domaincontroller_master) ;;
+    domaincontroller_backup) ;;
+    *) return 0 ;;
+    esac
+
+    # shellcheck source=/dev/null
+    . /usr/share/univention-lib/ldap.sh
+    package_name='univention-ldap-server'
+    package_version="$(dpkg-query -f '${Version}' -W "$package_name")"
+    ucs_registerLDAPExtension \
+        --packagename "$package_name" \
+        --packageversion "$package_version" \
+        ${1:+"$@"} \
+        --schema /usr/share/univention-ldap/schema/univention-translog.schema
+}
+
+main ${1:+"$@"}
+:
+
+# Constraints
+# * DB must be created before slapd can start
+# * SCHEMA must be registered before UDN should start
+# Scnearios
+# 1: master new install
+#    no running/configured slapd during postinst
+# 2: backup (new install | upgrade) with old master
+#    schema must be registered and replicated before UDN can start

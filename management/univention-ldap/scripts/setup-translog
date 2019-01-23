@@ -26,7 +26,7 @@
 # License with the Debian GNU/Linux or Univention distribution in file
 # /usr/share/common-licenses/AGPL-3; if not, see
 # <http://www.gnu.org/licenses/>.
-set -e -u
+set -e -u -x
 
 main () {
     local action="${1?-Missing action}"
@@ -97,6 +97,21 @@ setup_schema () {
         ${1:+"$@"} \
         --schema /usr/share/univention-ldap/schema/univention-translog.schema
 }
+
+cleanup () {
+    local rc=$?
+    if [ "$rc" -ne 0 ] && [ -t 2 ]
+    then
+        set +e +u
+        echo "[$(date --rfc-3339=s)] $$ $0 $*"
+        ps axf
+        grep -i -n -e 'translog' -e '^[^#]' /etc/ldap/slapd.conf /var/lib/univention-ldap/schema.conf
+        ls -l /var/lib/univention-ldap/translog/ /var/univention-join/
+        cat /var/univention-join/status
+    fi
+    return "$rc"
+}
+trap cleanup EXIT
 
 main ${1:+"$@"}
 :
